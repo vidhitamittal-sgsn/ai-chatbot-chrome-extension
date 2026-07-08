@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "PageChat AI Prototype",
+  "version": "1.0",
+  "description": "Chat with the content of your active browser tab.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
