@@ -1,79 +1,23 @@
-// document.getElementById('send-btn').addEventListener('click', handleSend);
-// document.getElementById('user-input').addEventListener('keypress', function(e) {
-//   if (e.key === 'Enter') handleSend();
-// });
-
-// async function handleSend() {
-//   const inputEl = document.getElementById('user-input');
-//   const question = inputEl.value.trim();
-//   if (!question) return;
-
-//   appendMessage('User', question, 'user');
-//   inputEl.value = '';
-
-//   const chatBox = document.getElementById('chat-box');
-//   const loadingDiv = document.createElement('div');
-//   loadingDiv.className = 'message ai';
-//   loadingDiv.innerText = 'AI is thinking...';
-//   chatBox.appendChild(loadingDiv);
-//   chatBox.scrollTop = chatBox.scrollHeight;
-
-//   try {
-//     // 1. Get the active browser tab
-//     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-//     if (!tab) throw new Error("No active tab found.");
-
-//     // 2. Inject a script to scrape the visible innerText of the page
-//     const [scriptResult] = await chrome.scripting.executeScript({
-//       target: { tabId: tab.id },
-//       func: () => document.body.innerText
-//     });
-
-//     const pageContent = scriptResult.result || "";
-
-//     // 3. Post the page content and question to the local Python backend
-//     const response = await fetch('http://127.0.0.1:8000/api/chat', {
-//       method: 'POST',
-//       headers: { 'Content-Type': 'application/json' },
-//       body: JSON.stringify({ page_content: pageContent, question: question })
-//     });
-
-//     loadingDiv.remove();
-
-//     if (!response.ok) {
-//       const errData = await response.json();
-//       throw new Error(errData.detail || "Server error");
-//     }
-
-//     const data = await response.json();
-//     appendMessage('AI', data.answer, 'ai');
-
-//   } catch (error) {
-//     loadingDiv.remove();
-//     appendMessage('Error', error.message, 'error');
-//   }
-// }
-
-// function appendMessage(sender, text, className) {
-//   const chatBox = document.getElementById('chat-box');
-//   const msgDiv = document.createElement('div');
-//   msgDiv.className = `message ${className}`;
-//   msgDiv.innerHTML = `<strong>${sender}:</strong> ${text}`;
-//   chatBox.appendChild(msgDiv);
-//   chatBox.scrollTop = chatBox.scrollHeight;
-// }
-document.getElementById('send-btn').addEventListener('click', handleSend);
+document.getElementById('send-btn').addEventListener('click', () => handleSend());
 document.getElementById('user-input').addEventListener('keypress', function(e) {
   if (e.key === 'Enter') handleSend();
 });
 
-async function handleSend() {
+let globalChatHistory = [];
+
+document.addEventListener('DOMContentLoaded', () => loadSuggestions());
+
+async function handleSend(forcedQuestion = null) {
   const inputEl = document.getElementById('user-input');
-  const question = inputEl.value.trim();
+  const question = forcedQuestion ? forcedQuestion : inputEl.value.trim();
   if (!question) return;
 
   appendMessage('User', question, 'user');
-  inputEl.value = '';
+  globalChatHistory.push({ role: 'user', text: question });
+  
+  if(!forcedQuestion) inputEl.value = '';
+  
+  document.getElementById('suggestions-container').innerHTML = '';
 
   const chatBox = document.getElementById('chat-box');
   const loadingDiv = document.createElement('div');
@@ -85,8 +29,10 @@ async function handleSend() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) throw new Error("No active tab found.");
-    const screenshotUrl = await chrome.tabs.captureVisibleTab(null, { format: 'jpeg', quality: 80 });
+
+    const screenshotUrl = await chrome.tabs.captureVisibleTab(null, { format: 'jpeg', quality: 75 });
     const base64Image = screenshotUrl.split(',')[1];
+
     const response = await fetch('http://127.0.0.1:8000/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,10 +48,54 @@ async function handleSend() {
 
     const data = await response.json();
     appendMessage('AI', data.answer, 'ai');
+    globalChatHistory.push({ role: 'ai', text: data.answer });
+
+    loadSuggestions();
 
   } catch (error) {
     loadingDiv.remove();
     appendMessage('Error', error.message, 'error');
+  }
+}
+
+async function loadSuggestions() {
+  const container = document.getElementById('suggestions-container');
+  container.innerHTML = '<span style="font-size:11px; color:#666; padding-left:4px;">Contextualizing follow-ups...</span>';
+  
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) return;
+    
+    const screenshotUrl = await chrome.tabs.captureVisibleTab(null, { format: 'jpeg', quality: 50 });
+    const base64Image = screenshotUrl.split(',')[1];
+    
+    const response = await fetch('http://127.0.0.1:8000/api/suggest-questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        image_data: base64Image,
+        chat_history: globalChatHistory 
+      })
+    });
+    
+    if (!response.ok) throw new Error();
+    const data = await response.json();
+    
+    container.innerHTML = '';
+    
+    data.suggestions.forEach(question => {
+      const chip = document.createElement('div');
+      chip.className = 'suggestion-chip';
+      chip.innerText = question;
+      
+      chip.addEventListener('click', () => {
+        handleSend(question); 
+      });
+      container.appendChild(chip);
+    });
+    
+  } catch (err) {
+    container.innerHTML = ''; 
   }
 }
 
